@@ -14,10 +14,12 @@ def extrair_remuneracao_servidor(id_portal):
     }
 
     # XPath para cada informação desejada
-    xpath_expressions = {
+    xpath_expressions_descricao = {
         'classe_cargo': '//*[@id="collapse-1"]/div/div[1]/div[2]/span',
         'jornada': '//*[@id="collapse-1"]/div/div[4]/div[1]/span',
-        'ingresso': '//*[@id="collapse-1"]/div/div[6]/div[1]/span',
+        'ingresso': '//*[@id="collapse-1"]/div/div[6]/div[1]/span'
+    }
+    xpath_expressions_remuneracao = {
         'remuneracao_basica_bruta': '//*[@id="tab-remuneracoesServidor-2-servidor-civil"]/div/div[2]/div[2]/span',
         'remuneracao_apos_deducoes': '//*[@id="tab-remuneracoesServidor-2-servidor-civil"]/div/div[4]/div[2]/strong'
     }
@@ -36,7 +38,7 @@ def extrair_remuneracao_servidor(id_portal):
             dados_servidor = {}
 
             # Extrai as informações usando os XPaths definidos
-            for chave, xpath_expression in xpath_expressions.items():
+            for chave, xpath_expression in xpath_expressions_descricao.items():
                 dados_servidor['id_portal'] = id_portal
                 # Tenta encontrar o elemento com o XPath especificado
                 element = tree.xpath(xpath_expression)
@@ -46,6 +48,31 @@ def extrair_remuneracao_servidor(id_portal):
                     dados_servidor[chave] = element[0].text.strip()
                 else:
                     dados_servidor[chave] = None
+            
+            for chave, xpath_expression in xpath_expressions_remuneracao.items():
+                # Tenta encontrar o elemento com o XPath especificado
+                element = tree.xpath(xpath_expression)
+                
+                # Verifica se o elemento foi encontrado
+                if element:
+                    dados_servidor[chave] = element[0].text.strip()
+                else:
+                    # Tenta substituir o valor no XPath de 4 a 8
+                    found = False
+                    for i in range(4, 9):
+                        try:
+                            modified_xpath = xpath_expression.replace('4', str(i))
+                            element = tree.xpath(modified_xpath)
+                            if element:
+                                dados_servidor[chave] = element[0].text.strip()
+                                found = True
+                                break
+                        except:
+                            continue
+                    
+                    # Se não encontrou nenhum elemento, define como None
+                    if not found:
+                        dados_servidor[chave] = None
 
             return dados_servidor
 

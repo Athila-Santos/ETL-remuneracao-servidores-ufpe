@@ -25,7 +25,7 @@ response = supabase.table(tabela).select(coluna).eq('situacao','Ativo').execute(
 ids_supabase = list(response)[0][1]
 listaId = []
 
-for i in range(0, len(ids_supabase)):
+for i in range(400, len(ids_supabase)):
 
     listaId.append(ids_supabase[i]['id_portal'])
 
