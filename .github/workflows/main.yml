@@ -1,0 +1,44 @@
+name: Pipeline ETL Servidores UFPE
+
+# 1. OS GATILHOS (Triggers)
+on:
+  # Permite que você rode este fluxo manualmente
+  # (Clicando em um botão no GitHub)
+  workflow_dispatch:
+
+  # Permite que o fluxo rode em um agendamento (cron job)
+  schedule:
+    # Este exemplo roda "Às 03:00 da manhã, no dia 1º de cada mês"
+    # (Você pode ajustar ou remover isso)
+    - cron: '0 3 1 * *'
+
+# 2. OS PASSOS (Jobs)
+jobs:
+  run-pipeline:
+    # A máquina virtual que o GitHub vai usar
+    runs-on: ubuntu-latest
+
+    steps:
+      # Passo 1: Baixar o seu código do repositório
+      - name: 1. Checkout do código
+        uses: actions/checkout@v4
+
+      # Passo 2: Configurar o ambiente Python
+      - name: 2. Configurar Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11' # Use a mesma versão que você tem localmente
+
+      # Passo 3: Instalar todas as suas bibliotecas
+      - name: 3. Instalar dependências
+        run: |
+          pip install -r requirements.txt
+
+      # Passo 4: Rodar o pipeline!
+      - name: 4. Rodar o Pipeline de ETL
+        # É aqui que injetamos os "Secrets"
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: |
+          python main.py
