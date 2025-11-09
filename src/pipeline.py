@@ -5,6 +5,7 @@ from .scraper import PortalScraper
 from .processing import DataProcessor
 from .ingestor import IdIngestor
 import config
+import time
 
 logging.basicConfig(
     level=logging.INFO, 
@@ -14,6 +15,11 @@ logger = logging.getLogger(__name__)
 
 
 class ETLPipeline:
+    """
+    Orquestra o processo de ETL de ponta a ponta.
+    Agora inclui o Estágio 1 (Ingestão) e o Estágio 2 (Enriquecimento)
+    com a lógica de coleta de variáveis completa para o BI.
+    """
     def __init__(self, db_url: str, db_key: str):
         logger.info("Iniciando Pipeline de ETL...")
         try:
@@ -31,15 +37,32 @@ class ETLPipeline:
         )
         
         try:
+            # --- BLOCO ATUALIZADO ---
+            # Mapeia as novas chaves (que batem com o SQL) 
+            # para os XPaths robustos do config.py
+            
+            # Campos da seção "Vínculo" (section[2])
             self.xpaths_descricao = {
+                'cargo_emprego': config.XPATH_CARGO_EMPREGO,
                 'classe_cargo': config.XPATH_CLASSE_CARGO,
+                'regime_juridico': config.XPATH_REGIME_JURIDICO,
                 'jornada': config.XPATH_JORNADA,
-                'ingresso': config.XPATH_INGRESSO
+                'ingresso_orgao': config.XPATH_INGRESSO_ORGAO,
+                'ingresso_servico_publico': config.XPATH_INGRESSO_SERVICO_PUBLICO,
+                'forma_ingresso': config.XPATH_FORMA_INGRESSO,
+                'afastamento': config.XPATH_AFASTAMENTO,
+                'uorg_lotacao': config.XPATH_UORG
             }
+            
+            # Campos da seção "Remuneração" (section[3])
             self.xpaths_remuneracao = {
+                'data_remuneracao': config.XPATH_DATA_REMUNERACAO,
                 'remuneracao_basica_bruta': config.XPATH_REMUNERACAO_BASICA,
                 'remuneracao_apos_deducoes': config.XPATH_REMUNERACAO_LIQUIDA
             }
+            logger.info("Configurações de XPath (v2 Robusta) carregadas.")
+            # --- FIM DO BLOCO ATUALIZADO ---
+
         except AttributeError as e:
             logger.critical(f"Variável de XPath não encontrada no config.py: {e}")
             raise SystemExit(f"Erro de configuração: {e}")
@@ -51,21 +74,20 @@ class ETLPipeline:
         """
         logger.warning("Iniciando Estágio 1: Ingestão de IDs (Apague e Recarregue)...")
         
-        # 1. Coleta dados da API (em memória)
         novos_registros = self.ingestor.consultar_dados_api()
         
         if not novos_registros:
             logger.error("Falha na ingestão: A API não retornou registros.")
             return False
             
-        # 2. APAGA os dados antigos da tabela
+        logger.info("Deletando registros antigos da Tabela 1 (idServidores)...")
         sucesso_delete = self.db_client.delete_all_from_table(config.TABELA_IDS)
         
         if not sucesso_delete:
             logger.error("Estágio 1: Falha ao deletar registros antigos. Abortando.")
             return False
             
-        # 3. INSERE os novos dados
+        logger.info("Inserindo novos registros na Tabela 1 (idServidores)...")
         sucesso_insert = self.db_client.batch_insert_ids(
             registros=novos_registros,
             tabela=config.TABELA_IDS
@@ -81,8 +103,6 @@ class ETLPipeline:
     def run_etl_remuneracoes(self):
         """
         Executa o pipeline com lógica incremental (DELTA).
-        Estágio 1: Garante que os IDs fonte existem.
-        Estágio 2: Calcula o delta e processa apenas os novos IDs com uma barra de progresso.
         """
         logger.info("--- INICIANDO EXECUÇÃO DO PIPELINE ---")
         
@@ -135,16 +155,9 @@ class ETLPipeline:
         contador_sucesso = 0
         contador_falha = 0
         
-        # --- AQUI ESTÁ A MUDANÇA ---
-        # Envolvemos 'ids_para_processar' com o 'tqdm'
-        # 'desc' = Título da barra
-        # 'unit' = O que estamos contando (IDs)
-        logger.info("Iniciando Estágio 2: Raspagem de Salários...")
+        logger.info("Iniciando Estágio 2: Raspagem de Salários e Vínculos...")
         
-        for id_portal in tqdm(ids_para_processar, desc="Raspando Salários (Estágio 2)", unit=" ID"):
-            
-            # Não precisamos mais disso, o tqdm já mostra o progresso:
-            # logger.info(f"Processando novo ID: {id_portal}...") 
+        for id_portal in tqdm(ids_para_processar, desc="Raspando Dados (Estágio 2)", unit=" ID"):
             
             dados_brutos = self.scraper.extrair_remuneracao_servidor(
                 id_portal=id_portal,
@@ -154,19 +167,19 @@ class ETLPipeline:
             )
             
             if dados_brutos is None:
-                # O logger.warning ainda é ótimo, o tqdm vai imprimi-lo
-                # acima da barra de progresso sem quebrá-la.
                 logger.warning(f"Falha ao raspar dados para o ID: {id_portal}. Pulando.")
                 contador_falha += 1
                 continue
             
             try:
+                # O Processor agora formata os novos campos
                 dados_limpos = self.processor.formatar_dados_servidor(dados_brutos)
             except Exception as e:
                 logger.error(f"Erro ao formatar dados para o ID {id_portal}: {e}")
                 contador_falha += 1
                 continue
 
+            # O DatabaseClient agora salva o dicionário maior
             sucesso_upsert = self.db_client.upsert_remuneracao(
                 dados=dados_limpos,
                 tabela_destino=config.TABELA_REMUNERACAO,
@@ -174,15 +187,13 @@ class ETLPipeline:
             )
             
             if sucesso_upsert:
-                # Este log também é desnecessário, podemos silenciá-lo
-                # logger.info(f"Dados para o ID {id_portal} salvos com sucesso.")
                 contador_sucesso += 1
             else:
                 logger.error(f"Falha ao salvar dados no Supabase para o ID {id_portal}.")
                 contador_falha += 1
-        
-        # O 'tqdm' automaticamente imprime o tempo total quando o loop acaba.
 
+            time.sleep(0.5)
+            
         # === RESUMO FINAL ===
         logger.info("--- RESUMO DO ESTÁGIO 2 (INCREMENTAL) ---")
         logger.info(f"Total de novos IDs processados: {len(ids_para_processar)}")

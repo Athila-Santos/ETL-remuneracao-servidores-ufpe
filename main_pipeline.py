@@ -3,14 +3,11 @@ import logging
 from src.pipeline import ETLPipeline
 import config
 
-# --- Configuração do Logging ---
 logging.basicConfig(
     level=logging.INFO, 
     format='%(asctime)s - [%(levelname)s] - %(name)s - %(message)s',
     handlers=[
         logging.StreamHandler(sys.stdout)
-        # Você pode adicionar logging.FileHandler('pipeline.log') aqui
-        # se quiser salvar os logs em um arquivo também.
     ]
 )
 
